@@ -6,10 +6,13 @@ package main
 // go build -buildmode=plugin wc.go
 //
 
-import "github.com/maxfy1992/6.824-2020/src/mr"
-import "unicode"
-import "strings"
-import "strconv"
+import (
+	"strconv"
+	"strings"
+	"unicode"
+
+	"github.com/maxfy1992/6.824-2020/src/mr"
+)
 
 //
 // The map function is called once for each file of input. The first
