@@ -4,10 +4,13 @@ package shardmaster
 // Shardmaster clerk.
 //
 
-import "../labrpc"
-import "time"
-import "crypto/rand"
-import "math/big"
+import (
+	"crypto/rand"
+	"math/big"
+	"time"
+
+	"github.com/maxfy1992/6.824-2020/src/labrpc"
+)
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd

@@ -1,11 +1,12 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
-
+import (
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
 type Master struct {
 	// Your definitions here.
@@ -21,7 +22,6 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -46,7 +46,6 @@ func (m *Master) Done() bool {
 	ret := false
 
 	// Your code here.
-
 
 	return ret
 }

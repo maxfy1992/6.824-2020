@@ -1,15 +1,17 @@
 package kvraft
 
-import "../linearizability"
+import (
+	"log"
+	"math/rand"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
 
-import "testing"
-import "strconv"
-import "time"
-import "math/rand"
-import "log"
-import "strings"
-import "sync"
-import "sync/atomic"
+	"github.com/maxfy1992/6.824-2020/src/linearizability"
+)
 
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
