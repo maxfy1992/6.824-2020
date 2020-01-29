@@ -110,7 +110,7 @@ func (m *Master) run(jobName string, files []string, nReduce int,
 	schedule(reducePhase)
 	finish()
 	// 2018 diff
-	m.merge()
+	//m.merge()
 
 	fmt.Printf("%s: Map/Reduce task completed\n", m.address)
 

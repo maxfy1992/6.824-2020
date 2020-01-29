@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -44,15 +45,15 @@ type KeyValue struct {
 // <mapTask> produces for reduce task <reduceTask>.
 func reduceName(jobName string, mapTask int, reduceTask int) string {
 	// 2018 diff
-	return "mrtmp." + jobName + "-" + strconv.Itoa(mapTask) + "-" + strconv.Itoa(reduceTask)
-	//return "mr-" + strconv.Itoa(mapTask) + "-" + strconv.Itoa(reduceTask)
+	//return "mrtmp." + jobName + "-" + strconv.Itoa(mapTask) + "-" + strconv.Itoa(reduceTask)
+	return "mr-" + strconv.Itoa(mapTask) + "-" + strconv.Itoa(reduceTask)
 }
 
 // mergeName constructs the name of the output file of reduce task <reduceTask>
 func mergeName(jobName string, reduceTask int) string {
 	// 2018 diff
-	return "mrtmp." + jobName + "-res-" + strconv.Itoa(reduceTask)
-	//return "mr-out-" + strconv.Itoa(reduceTask)
+	//return "mrtmp." + jobName + "-res-" + strconv.Itoa(reduceTask)
+	return "mr-out-" + strconv.Itoa(reduceTask)
 }
 
 //
@@ -137,19 +138,20 @@ func doReduce(
 	defer out.Close()
 
 	// 2018 diff
-	/*
-		w := bufio.NewWriter(out)
-		for _, key := range keys {
-			kv := KeyValue{key, reduceF(key, intermediateKeyValues[key])}
-			fmt.Fprintf(w, "%v %v\n", key, kv.Value)
-		}
-		w.Flush()
-	*/
-
-	enc := json.NewEncoder(out)
+	w := bufio.NewWriter(out)
 	for _, key := range keys {
 		kv := KeyValue{key, reduceF(key, intermediateKeyValues[key])}
-		enc.Encode(kv)
+		fmt.Fprintf(w, "%v %v\n", key, kv.Value)
 	}
+	w.Flush()
+
+	/*
+		enc := json.NewEncoder(out)
+		for _, key := range keys {
+			kv := KeyValue{key, reduceF(key, intermediateKeyValues[key])}
+			enc.Encode(kv)
+		}
+
+	*/
 
 }
