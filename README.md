@@ -18,12 +18,24 @@ go build -buildmode=plugin wc.go
 go run mrsequential.go ../mrapps/wc.so pg*.txt
 more mr-out-0
 
+// go test commit lab1 go test 
+./mr
+go test
+ PASS
+ ok      github.com/maxfy1992/6.824-2020/src/mr  133.425s
+
+// go test commit lab1 test-mr.sh 
 sh test-mr.sh
-*** Starting wc test.
-*** Starting wc test.
-2020/01/22 17:05:14 rpc.Register: method "Done" has 1 input parameters; needs exactly three
-sort: cannot read: 'mr-out*': No such file or directory
-cmp: EOF on mr-wc-all
---- wc output is not the same as mr-correct-wc.txt
---- wc test: FAIL
+--- wc test: PASS
+--- indexer test: PASS
+--- map parallelism test: PASS
+--- reduce parallelism test: PASS
+--- crash test: PASS
+*** PASSED ALL TESTS
 ```
+
+### 遗留问题
+
+- server如何优雅通过rpc关闭worker，目前虽然可以关闭但是server端会有错误EOF错误
+- go func 闭包，如何显式设置哪些变量需要copy，目前schedule处task存在竞争
+- test-mr.sh中修改了部分测试代码，这部分可以通过worker启动获取pid来避免指定一个worker unix socket

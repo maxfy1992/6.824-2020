@@ -4,10 +4,11 @@
 # basic map-reduce test
 #
 
-RACE= 
+#RACE=
+
 
 # uncomment this to run the tests with the Go race detector.
-#RACE=-race
+RACE=-race
 
 # run the test in a fresh sub-directory.
 rm -rf mr-tmp
@@ -39,9 +40,9 @@ echo '***' Starting wc test.
 sleep 1
 
 # start multiple workers
-../mrworker ../../mrapps/wc.so &
-../mrworker ../../mrapps/wc.so &
-../mrworker ../../mrapps/wc.so
+../mrworker ../../mrapps/wc.so mr-worker-0 &
+../mrworker ../../mrapps/wc.so mr-worker-1 &
+../mrworker ../../mrapps/wc.so mr-worker-2
 
 sort mr-out* | grep . > mr-wc-all
 if cmp mr-wc-all mr-correct-wc.txt
@@ -67,8 +68,8 @@ echo '***' Starting indexer test.
 sleep 1
 
 # start multiple workers
-../mrworker ../../mrapps/indexer.so &
-../mrworker ../../mrapps/indexer.so
+../mrworker ../../mrapps/indexer.so mr-worker-0 &
+../mrworker ../../mrapps/indexer.so mr-worker-1
 
 sort mr-out* | grep . > mr-indexer-all
 if cmp mr-indexer-all mr-correct-indexer.txt
@@ -90,8 +91,8 @@ rm -f mr-out* mr-worker*
 ../mrmaster ../pg*txt &
 sleep 1
 
-../mrworker ../../mrapps/mtiming.so &
-../mrworker ../../mrapps/mtiming.so
+../mrworker ../../mrapps/mtiming.so mr-worker-0 &
+../mrworker ../../mrapps/mtiming.so mr-worker-1
 
 NT=`cat mr-out* | grep '^times-' | wc -l | sed 's/ //g'`
 if [ "$NT" != "2" ]
@@ -118,8 +119,8 @@ rm -f mr-out* mr-worker*
 ../mrmaster ../pg*txt &
 sleep 1
 
-../mrworker ../../mrapps/rtiming.so &
-../mrworker ../../mrapps/rtiming.so
+../mrworker ../../mrapps/rtiming.so mr-worker-0 &
+../mrworker ../../mrapps/rtiming.so mr-worker-1
 
 NT=`cat mr-out* | grep '^[a-z] 2' | wc -l | sed 's/ //g'`
 if [ "$NT" -lt "2" ]
@@ -145,23 +146,23 @@ rm -f mr-done
 sleep 1
 
 # start multiple workers
-../mrworker ../../mrapps/crash.so &
+../mrworker ../../mrapps/crash.so mr-worker-0 &
 
 ( while [ -e mr-socket -a ! -f mr-done ]
   do
-    ../mrworker ../../mrapps/crash.so 
+    ../mrworker ../../mrapps/crash.so mr-worker-1
     sleep 1
   done ) &
 
 ( while [ -e mr-socket -a ! -f mr-done ]
   do
-    ../mrworker ../../mrapps/crash.so 
+    ../mrworker ../../mrapps/crash.so mr-worker-2
     sleep 1
   done ) &
 
 while [ -e mr-socket -a ! -f mr-done ]
 do
-  ../mrworker ../../mrapps/crash.so 
+  ../mrworker ../../mrapps/crash.so mr-worker-3
   sleep 1
 done
 

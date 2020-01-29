@@ -18,14 +18,14 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: mrworker ../mrapps/xxx.so\n")
+	if len(os.Args) != 3 {
+		fmt.Fprintf(os.Stderr, "Usage: mrworker ../mrapps/xxx.so mr-worker-0\n")
 		os.Exit(1)
 	}
 
 	mapf, reducef := loadPlugin(os.Args[1])
 
-	mr.Worker(mapf, reducef)
+	mr.StartWorker(os.Args[2], mapf, reducef)
 }
 
 //
