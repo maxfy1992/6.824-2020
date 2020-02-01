@@ -34,6 +34,17 @@ sh test-mr.sh
 *** PASSED ALL TESTS
 ```
 
+## lab2
+[lab2](https://pdos.csail.mit.edu/6.824/labs/lab-raft.html)
+
+```
+commit 43e412657e2fd4ce1df874a327ec0cebe46ce8d7
+cd raft 
+go test
+PASS
+```
+
+
 ### 遗留问题
 
 - server如何优雅通过rpc关闭worker，目前虽然可以关闭但是server端会有错误EOF错误
