@@ -47,6 +47,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	if rf.currentTerm == args.Term && rf.votedFor == args.CandidateId {
 		reply.VoteGranted, reply.Term = true, rf.currentTerm
+		rf.resetElectionTimerWithLock() // granting vote to candidate, reset timer
 		return
 	}
 	if rf.currentTerm > args.Term ||
@@ -61,8 +62,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.persist()
 		if rf.state != Follower { // once server becomes follower, it has to reset timer
 			DPrintf("VOTE: Server %d receiving request vote from %d transition to follower, origin state: %s", rf.me, args.CandidateId, rf.state)
-			rf.resetElectionTimer()
-			rf.state = Follower
+			rf.resetElectionTimerWithLock()                       // detect higher term via vote request trans to Follower
+			rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via vote request trans to Follower
 		}
 	}
 
@@ -80,7 +81,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 	reply.VoteGranted = true
 	rf.votedFor = args.CandidateId
-	rf.resetElectionTimer() // granting vote to candidate, reset timer
+	rf.resetElectionTimerWithLock() // granting vote to candidate, reset timer
 	rf.persist()
 	DPrintf("VOTE: Follower %d vote for candidate: %d, vote args: %v, follower term: %d, last log index: %d, last log term: %d", rf.me, args.CandidateId, args, rf.currentTerm, lastLogIndex, rf.log[lastLogIndex].LogTerm)
 }
@@ -97,12 +98,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	reply.Term = args.Term
 	rf.leaderId = args.LeaderId
-	rf.resetElectionTimer() // reset timer when there is a legal leader
+	rf.resetElectionTimerWithLock() // reset timer when there is a legal leader
+
 	if args.Term > rf.currentTerm {
+		rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via ApplyEntry rpc request
 		rf.currentTerm, rf.votedFor = args.Term, -1
+		rf.resetElectionTimerWithLock() // reset timer when detect higher term via ApplyEntry rpc request
 		rf.persist()
+	} else if args.Term == rf.currentTerm {
+		rf.stateTransitionWithLock(Follower, Follower, false) // detect same term(which means there is a legal leader) via ApplyEntry rpc request
 	}
-	rf.state = Follower
+
 	logIndex := rf.logIndex
 	prevLogIndex := args.PrevLogIndex
 	if logIndex <= prevLogIndex || rf.log[prevLogIndex].LogTerm != args.PrevLogTerm { // follower don't agree with leader on last log entry
@@ -136,6 +142,5 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 	rf.commitIndex = Max(rf.commitIndex, Min(args.CommitIndex, args.PrevLogIndex+args.Len))
 	rf.persist()
-	rf.resetElectionTimer() // reset timer
 	go rf.notifyApply()
 }

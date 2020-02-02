@@ -61,6 +61,45 @@ type Raft struct {
 	timeOutElectionTimer *time.Timer   // timer used for timeout for election
 }
 
+// caller must hold mu
+// reference: Figure 4
+func (rf *Raft) stateTransitionWithLock(sourceState, targetState serverState, isCheck bool) bool {
+	ret := false
+	if isCheck && sourceState != rf.state {
+		return ret
+	}
+
+	switch rf.state {
+	case Leader:
+		// detect higher term
+		if targetState == Follower {
+			rf.state = targetState
+			ret = true
+		}
+	case Follower:
+		// election timeout
+		if targetState == Candidate {
+			rf.state = targetState
+			ret = true
+		} else if targetState == Follower {
+			ret = true
+		}
+	case Candidate:
+		if targetState == Leader {
+			DPrintf("[Transition]CANDIDATE: Server %d receive enough vote and becoming a new leader", rf.me)
+		}
+		// the term election timeout again, Candidate->Candidate
+		// the term election success, Candidate->Leader
+		// the term election fail(find a legal leader) or detect higher term, Candidate->Follower
+		rf.state = targetState
+		ret = true
+	default:
+		log.Fatal("server state invalid")
+	}
+
+	return ret
+}
+
 // After a leader comes to power, it calls this function to initialize nextIndex and matchIndex
 func (rf *Raft) initIndex() {
 	peersNum := len(rf.peers)
@@ -120,7 +159,6 @@ func (rf *Raft) readPersist(data []byte) {
 
 // send RequestVote RPC call to server and handle reply
 func (rf *Raft) makeRequestVoteCall(server int, args *RequestVoteArgs, voteCh chan<- bool, retryCh chan<- int) {
-
 	rf.mu.Lock()
 	if rf.state != Candidate {
 		go func() { voteCh <- false }() // stop election
@@ -137,11 +175,12 @@ func (rf *Raft) makeRequestVoteCall(server int, args *RequestVoteArgs, voteCh ch
 			rf.mu.Lock()
 			if rf.currentTerm < reply.Term {
 				DPrintf("VOTE: When asking for vote, server %d find itself is obsolete, transition to follower, old term: %d, new term: %d", rf.me, rf.currentTerm, reply.Term)
-				// TODO 这里可能存在问题，如何保证Follower timeout之前退出上一轮的选举？？
-				rf.resetElectionTimer()
-				rf.state, rf.currentTerm, rf.votedFor, rf.leaderId = Follower, reply.Term, -1, -1
+				rf.stateTransitionWithLock(Follower, Follower, false) // detect detect higher term via receive vote rpc response
+				rf.currentTerm, rf.votedFor, rf.leaderId = reply.Term, -1, -1
+				rf.resetElectionTimerWithLock() // reset timer when detect higher term via receive vote rpc response
 				rf.persist()
 				go func() { voteCh <- false }() // stop election
+
 			}
 			rf.mu.Unlock()
 		} // else other server is more up-to-date this server
@@ -150,31 +189,31 @@ func (rf *Raft) makeRequestVoteCall(server int, args *RequestVoteArgs, voteCh ch
 	}
 }
 
-func (rf *Raft) resetElectionTimer() {
+func (rf *Raft) resetElectionTimerWithLock() {
 	rf.timeOutElectionTimer.Stop()
 	rf.timeOutElectionTimer.Reset(newRandDuration(ElectionTimeout))
 }
 
-// leader nerver call startElection
-// follower call startElection from bgElection
-// Candidate call startElection from startElection
+// startElection will be called by period=ElectionTimeout
 func (rf *Raft) startElection() {
 	rf.mu.Lock()
-	if rf.state != Candidate {
+	if rf.state == Leader {
 		rf.mu.Unlock()
 		return
 	}
 
 	// start a new election
-	rf.leaderId = -1    // server believes there is no leader
-	rf.currentTerm += 1 // increment current term
-	rf.votedFor = rf.me // vote for self
+	rf.stateTransitionWithLock(Candidate, Candidate, false) // election timeout
+	rf.leaderId = -1                                        // server believes there is no leader
+	rf.currentTerm += 1                                     // increment current term
+	rf.votedFor = rf.me                                     // vote for self
 	currentTerm, lastLogIndex, me, serverCount := rf.currentTerm, rf.logIndex-1, rf.me, len(rf.peers)
 	lastLogTerm := rf.log[lastLogIndex].LogTerm
 	rf.persist()
 	rf.mu.Unlock()
 
 	args := RequestVoteArgs{Term: currentTerm, CandidateId: me, LastLogIndex: lastLogIndex, LastLogTerm: lastLogTerm}
+	DPrintf("CANDIDATE: Candidate %d time out, start election and ask for vote, args: %d, rf.logIndex: %d", me, args, lastLogIndex+1)
 
 	voteCh := make(chan bool, serverCount-1)
 	retryCh := make(chan int, serverCount-1)
@@ -183,10 +222,6 @@ func (rf *Raft) startElection() {
 			go rf.makeRequestVoteCall(i, &args, voteCh, retryCh)
 		}
 	}
-
-	electionDuration := newRandDuration(ElectionTimeout)
-	electionTimer := time.NewTimer(electionDuration) // in case there's no quorum, this election should timeout
-	DPrintf("CANDIDATE: Candidate %d time out, start election and ask for vote, args: %d, rf.logIndex: %d, next timeout time: %s", me, args, lastLogIndex+1, electionDuration.String())
 
 	voteCount, threshold := 0, serverCount/2 // counting vote
 
@@ -200,9 +235,16 @@ func (rf *Raft) startElection() {
 			voteCount += 1
 			if voteCount >= threshold { // receive enough vote
 				rf.mu.Lock()
-				if rf.state == Candidate { // check if server is in candidate state before becoming a leader
-					DPrintf("CANDIDATE: Server %d receive enough vote and becoming a new leader", rf.me)
-					rf.state = Leader
+				// notice: this impl allow multi-startElection by different go thread
+				// so check below ensure this thread is up-to-date and thus in charge
+				// TODO check channel func, here return is safe or not? what about go rf.makeRequestVoteCall(i, &args, voteCh, retryCh)
+				// Did they block then? 缓冲信道是否在没人接收时会阻塞？如何通知go程结束？
+				if rf.currentTerm != args.Term {
+					rf.mu.Unlock()
+					return
+				}
+
+				if ok := rf.stateTransitionWithLock(Candidate, Leader, true); ok { // receive enough vote
 					rf.initIndex() // after election, reinitialized nextIndex and matchIndex
 					go rf.bgReplicateLog()
 				} // if server is not in candidate state, then another server establishes itself as leader
@@ -218,13 +260,6 @@ func (rf *Raft) startElection() {
 				rf.mu.Unlock()
 				return
 			}
-		case <-electionTimer.C: // election timeout
-			rf.mu.Lock()
-			if rf.status == Live && rf.state == Candidate {
-				go rf.startElection()
-			}
-			rf.mu.Unlock()
-			return
 		}
 	}
 }
@@ -254,8 +289,9 @@ func (rf *Raft) makeAppendEntriesCall(follower int, retryCh chan<- int, empty bo
 		if !reply.Success {
 			if reply.Term > rf.currentTerm { // the leader is obsolete
 				DPrintf("When appending entries, server %d find itself is obsolete, transition to follower, old term: %d, new term: %d", rf.me, rf.currentTerm, reply.Term)
-				rf.currentTerm, rf.state, rf.votedFor, rf.leaderId = reply.Term, Follower, -1, -1
-				rf.resetElectionTimer()
+				rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via ApplyEntry rpc response
+				rf.currentTerm, rf.votedFor, rf.leaderId = reply.Term, -1, -1
+				rf.resetElectionTimerWithLock() // reset timer when detect higher term via ApplyEntry rpc response
 				rf.persist()
 			} else { // follower is inconsistent with leader
 				rf.nextIndex[follower] = Max(1, Min(reply.ConflictIndex, rf.logIndex))
@@ -434,24 +470,31 @@ func (rf *Raft) bgApply() {
 
 func (rf *Raft) bgElection() {
 	// TODO quit
-	// 使用sleep有个问题无法解决，比如心跳成功后，应该继续延迟Timeout，有leader时不触发选举的逻辑，因此选择timer实现，注意好stop的使用
+	// 使用sleep有个问题无法解决，比如心跳成功后，应该继续延迟Timeout，有leader时不触发选举的逻辑（可以通过记录上次成功的时间戳，
+	// 每次sleep到达判断当前时间和上次成功的时间戳是否超过了超时时间（比如允许2个heartbeat，此时就是2xHeartBeatTimeout），也可以满足）
+	// 选择了timer方式实现，注意好stop的使用
+	// 这里有几个问题？
+	/*
+			1. 下一轮timeout如何关闭上一轮选举startElection go程，保证同时只有1个startElection
+			2. 如何处理Follower超时进入startElection，以及Candidate又超时进入startElection，保证同时只有1个startElection
+		目前的解决方案是，允许后台多个选举go程，但是状态变更考虑周全一些
+	*/
 	for {
 		//randomDuration := newRandDuration(ElectionTimeout)
 		//time.Sleep(randomDuration)
+		// if timeout condition
 		select {
 		case <-rf.timeOutElectionTimer.C:
 			rf.mu.Lock()
-			if rf.state == Follower {
-				rf.state = Candidate
-				go rf.startElection() // follower timeout, start a new election
-			}
+			rf.resetElectionTimerWithLock() // reset for period timeout
 			rf.mu.Unlock()
+			go rf.startElection()
 		}
 	}
 }
 
-// main background
-func (rf *Raft) runBgs() {
+// start backgrounds
+func (rf *Raft) startBgs() {
 	// handle election timeout
 	go rf.bgElection()
 
@@ -493,6 +536,6 @@ func Make(peers []*labrpc.ClientEnd, me int, persistent *Persister, applyCh chan
 	// initialize from state persisted before a crash
 	rf.readPersist(persistent.ReadRaftState())
 
-	go rf.runBgs()
+	go rf.startBgs()
 	return rf
 }
