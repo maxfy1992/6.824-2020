@@ -317,7 +317,7 @@ func (rf *Raft) makeAppendEntriesCall(follower int, retryCh chan<- int, empty bo
 				}
 				if count >= threshold {
 					rf.commitIndex = prevLogIndex + logEntriesLen // can commit log
-					rf.persist()
+					//rf.persist()
 					go rf.notifyApply()
 					DPrintf("Leader %d have following servers: %v replicating log and can update commit index to :%d", rf.me, agreedFollower, rf.commitIndex)
 				}
@@ -457,7 +457,7 @@ func (rf *Raft) bgApply() {
 			startIndex, endIndex := rf.lastApplied+1, rf.commitIndex
 			entries := append(rf.log[startIndex : endIndex+1])
 			rf.lastApplied = rf.commitIndex
-			rf.persist()
+			//rf.persist()
 			rf.mu.Unlock()
 
 			for i := 0; i < len(entries); i++ {
