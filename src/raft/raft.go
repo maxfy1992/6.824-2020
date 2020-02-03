@@ -459,15 +459,21 @@ func (rf *Raft) bgApply() {
 		select {
 		case <-rf.notifyCh:
 			rf.mu.Lock()
-			startIndex, endIndex := rf.lastApplied+1, rf.commitIndex
-			entries := append(rf.log[startIndex : endIndex+1])
-			rf.lastApplied = rf.commitIndex
-			//rf.persist()
-			rf.mu.Unlock()
+			if rf.lastApplied < rf.commitIndex {
+				startIndex, endIndex := rf.lastApplied+1, rf.commitIndex
+				entries := append(rf.log[startIndex : endIndex+1])
+				rf.lastApplied = rf.commitIndex
+				//rf.persist()
+				rf.mu.Unlock()
 
-			for i := 0; i < len(entries); i++ {
-				// TODO maybe wait for receive
-				rf.applyCh <- ApplyMsg{CommandValid: true, CommandIndex: entries[i].LogIndex, CommandTerm: entries[i].LogTerm, Command: entries[i].Command}
+				// 并发bgApply可能导致乱序？是否会出现并发，follower只会从同步log进；leader则从同步多数进；有可能并发但只在notifyApply
+				// 这里使用同步的notifyCh确保bgApply不会并发
+				for i := 0; i < len(entries); i++ {
+					// TODO maybe wait for receive
+					rf.applyCh <- ApplyMsg{CommandValid: true, CommandIndex: entries[i].LogIndex, CommandTerm: entries[i].LogTerm, Command: entries[i].Command}
+				}
+			} else {
+				rf.mu.Unlock()
 			}
 		}
 	}
