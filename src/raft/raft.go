@@ -290,40 +290,43 @@ func (rf *Raft) makeAppendEntriesCall(follower int, retryCh chan<- int, empty bo
 	var reply AppendEntriesReply
 	if ok := rf.sendAppendEntries(follower, &args, &reply); ok { // RPC call success
 		rf.mu.Lock()
-		if !reply.Success {
-			if reply.Term > rf.currentTerm { // the leader is obsolete
-				DPrintf("When appending entries, server %d find itself is obsolete, transition to follower, old term: %d, new term: %d", rf.me, rf.currentTerm, reply.Term)
-				rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via ApplyEntry rpc response
-				rf.currentTerm, rf.votedFor, rf.leaderId = reply.Term, -1, -1
-				rf.resetElectionTimerWithLock() // reset timer when detect higher term via ApplyEntry rpc response
-				rf.persist()
-			} else { // follower is inconsistent with leader
-				rf.nextIndex[follower] = Max(1, Min(reply.ConflictIndex, rf.logIndex))
-			}
-		} else { // reply.Success is true
-			prevLogIndex, logEntriesLen := args.PrevLogIndex, args.Len
-			if prevLogIndex+logEntriesLen >= rf.nextIndex[follower] { // TODO ?in case apply arrive in out of order
-				rf.nextIndex[follower] = prevLogIndex + logEntriesLen + 1
-				rf.matchIndex[follower] = prevLogIndex + logEntriesLen
-				if logEntriesLen > 0 {
-					DPrintf("Leader %d update follower %d next index: %d, match index: %d", rf.me, follower, rf.nextIndex[follower], rf.matchIndex[follower])
+		// TODO check args.term between rf.currentTerm
+		if args.Term == rf.currentTerm {
+			if !reply.Success {
+				if reply.Term > rf.currentTerm { // the leader is obsolete
+					DPrintf("When appending entries, server %d find itself is obsolete, transition to follower, old term: %d, new term: %d", rf.me, rf.currentTerm, reply.Term)
+					rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via ApplyEntry rpc response
+					rf.currentTerm, rf.votedFor, rf.leaderId = reply.Term, -1, -1
+					rf.resetElectionTimerWithLock() // reset timer when detect higher term via ApplyEntry rpc response
+					rf.persist()
+				} else { // follower is inconsistent with leader
+					rf.nextIndex[follower] = Max(1, Min(reply.ConflictIndex, rf.logIndex))
 				}
-			}
-			// if log entry contains term equals to current term, then try if we can commit log by counting replicas
-			if prevLogIndex+logEntriesLen < rf.logIndex && rf.commitIndex < prevLogIndex+logEntriesLen && rf.log[prevLogIndex+logEntriesLen].LogTerm == rf.currentTerm {
-				l := len(rf.peers)
-				threshold, count, agreedFollower := l/2, 0, make([]int, 0, l)
-				for j := 0; j < l; j++ {
-					if j != rf.me && rf.matchIndex[j] >= prevLogIndex+logEntriesLen {
-						count += 1
-						agreedFollower = append(agreedFollower, j)
+			} else { // reply.Success is true
+				prevLogIndex, logEntriesLen := args.PrevLogIndex, args.Len
+				if prevLogIndex+logEntriesLen >= rf.nextIndex[follower] { // TODO ?in case apply arrive in out of order
+					rf.nextIndex[follower] = prevLogIndex + logEntriesLen + 1
+					rf.matchIndex[follower] = prevLogIndex + logEntriesLen
+					if logEntriesLen > 0 {
+						DPrintf("Leader %d update follower %d next index: %d, match index: %d", rf.me, follower, rf.nextIndex[follower], rf.matchIndex[follower])
 					}
 				}
-				if count >= threshold {
-					rf.commitIndex = prevLogIndex + logEntriesLen // can commit log
-					//rf.persist()
-					go rf.notifyApply()
-					DPrintf("Leader %d have following servers: %v replicating log and can update commit index to :%d", rf.me, agreedFollower, rf.commitIndex)
+				// if log entry contains term equals to current term, then try if we can commit log by counting replicas
+				if prevLogIndex+logEntriesLen < rf.logIndex && rf.commitIndex < prevLogIndex+logEntriesLen && rf.log[prevLogIndex+logEntriesLen].LogTerm == rf.currentTerm {
+					l := len(rf.peers)
+					threshold, count, agreedFollower := l/2, 0, make([]int, 0, l)
+					for j := 0; j < l; j++ {
+						if j != rf.me && rf.matchIndex[j] >= prevLogIndex+logEntriesLen {
+							count += 1
+							agreedFollower = append(agreedFollower, j)
+						}
+					}
+					if count >= threshold {
+						rf.commitIndex = prevLogIndex + logEntriesLen // can commit log
+						//rf.persist()
+						go rf.notifyApply()
+						DPrintf("Leader %d have following servers: %v replicating log and can update commit index to :%d", rf.me, agreedFollower, rf.commitIndex)
+					}
 				}
 			}
 		}
