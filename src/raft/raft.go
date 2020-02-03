@@ -159,13 +159,16 @@ func (rf *Raft) readPersist(data []byte) {
 
 // send RequestVote RPC call to server and handle reply
 func (rf *Raft) makeRequestVoteCall(server int, args *RequestVoteArgs, voteCh chan<- bool, retryCh chan<- int) {
-	rf.mu.Lock()
-	if rf.state != Candidate {
-		go func() { voteCh <- false }() // stop election
-		rf.mu.Unlock()
-		return
-	}
-	rf.mu.Unlock()
+	/*
+		// 可做可不做，不影响正确性，做可以快速结束不必要本轮选举，不做减少锁竞争
+			rf.mu.Lock()
+			if rf.state != Candidate {
+				go func() { voteCh <- false }() // stop election
+				rf.mu.Unlock()
+				return
+			}
+			rf.mu.Unlock()
+	*/
 
 	var reply RequestVoteReply
 	if ok := rf.sendRequestVote(server, args, &reply); ok {
@@ -246,6 +249,7 @@ func (rf *Raft) startElection() {
 
 				if ok := rf.stateTransitionWithLock(Candidate, Leader, true); ok { // receive enough vote
 					rf.initIndex() // after election, reinitialized nextIndex and matchIndex
+					rf.leaderId = rf.me
 					go rf.bgReplicateLog()
 				} // if server is not in candidate state, then another server establishes itself as leader
 				rf.mu.Unlock()
@@ -350,7 +354,8 @@ func (rf *Raft) bgReplicateLog() {
 		rf.mu.Lock()
 		if rf.status != Live || rf.state != Leader {
 			rf.mu.Unlock()
-			done <- struct{}{}
+			//done <- struct{}{}
+			close(done)
 			return
 		}
 		for follower := 0; follower < len(rf.peers); follower++ {

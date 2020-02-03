@@ -60,11 +60,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term > rf.currentTerm {
 		rf.currentTerm, rf.votedFor = args.Term, -1
 		rf.persist()
-		if rf.state != Follower { // once server becomes follower, it has to reset timer
-			DPrintf("VOTE: Server %d receiving request vote from %d transition to follower, origin state: %s", rf.me, args.CandidateId, rf.state)
-			rf.resetElectionTimerWithLock()                       // detect higher term via vote request trans to Follower
-			rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via vote request trans to Follower
-		}
+		DPrintf("VOTE: Server %d receiving request vote from %d transition to follower, origin state: %s", rf.me, args.CandidateId, rf.state)
+		rf.resetElectionTimerWithLock()                       // detect higher term via vote request trans to Follower
+		rf.stateTransitionWithLock(Follower, Follower, false) // detect higher term via vote request trans to Follower
 	}
 
 	rf.leaderId = -1 // other server trying to elect a new leader
@@ -106,6 +104,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.resetElectionTimerWithLock() // reset timer when detect higher term via ApplyEntry rpc request
 		rf.persist()
 	} else if args.Term == rf.currentTerm {
+		rf.resetElectionTimerWithLock()
 		rf.stateTransitionWithLock(Follower, Follower, false) // detect same term(which means there is a legal leader) via ApplyEntry rpc request
 	}
 
